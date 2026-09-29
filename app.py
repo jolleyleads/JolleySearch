@@ -1,3 +1,4 @@
+import logging
 import os
 from urllib.parse import quote_plus
 
@@ -5,6 +6,8 @@ import requests
 from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("jolley-search")
 
 BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 
@@ -12,6 +15,7 @@ BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 def brave_search(query: str, page: int = 1):
     key = os.getenv("BRAVE_SEARCH_API_KEY", "").strip()
     if not key:
+        logger.error("Brave search failed: BRAVE_SEARCH_API_KEY is missing")
         return [], "Search provider is not configured yet. Add BRAVE_SEARCH_API_KEY on Render."
 
     count = 10
@@ -30,10 +34,21 @@ def brave_search(query: str, page: int = 1):
             },
             timeout=12,
         )
-        response.raise_for_status()
+        if not response.ok:
+            # Deliberately never log request headers or the API key.
+            body = (response.text or "").replace("\n", " ")[:1000]
+            logger.error("Brave API HTTP %s response=%s", response.status_code, body)
+            return [], f"Search provider returned HTTP {response.status_code}."
         data = response.json()
-    except requests.RequestException:
+    except requests.Timeout:
+        logger.exception("Brave API request timed out")
+        return [], "The search provider timed out."
+    except requests.RequestException as exc:
+        logger.error("Brave API network error type=%s message=%s", type(exc).__name__, str(exc)[:500])
         return [], "The search provider is temporarily unavailable."
+    except ValueError as exc:
+        logger.error("Brave API returned invalid JSON: %s", str(exc)[:500])
+        return [], "The search provider returned an invalid response."
 
     results = []
     for item in data.get("web", {}).get("results", []):
@@ -43,6 +58,7 @@ def brave_search(query: str, page: int = 1):
             "description": item.get("description", ""),
             "profile": item.get("profile", {}),
         })
+    logger.info("Brave search succeeded result_count=%s page=%s", len(results), page)
     return results, None
 
 
