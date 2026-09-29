@@ -9,56 +9,50 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jolley-search")
 
-BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
+SERPER_ENDPOINT = "https://google.serper.dev/search"
 
 
-def brave_search(query: str, page: int = 1):
-    key = os.getenv("BRAVE_SEARCH_API_KEY", "").strip()
+def web_search(query: str, page: int = 1):
+    key = os.getenv("SERPER_API_KEY", "").strip()
     if not key:
-        logger.error("Brave search failed: BRAVE_SEARCH_API_KEY is missing")
-        return [], "Search provider is not configured yet. Add BRAVE_SEARCH_API_KEY on Render."
+        logger.error("Serper search failed: SERPER_API_KEY is missing")
+        return [], "Search provider is not configured yet."
 
-    count = 10
-    offset = max(0, page - 1) * count
+    payload = {"q": query, "page": page, "num": 10}
     try:
-        response = requests.get(
-            BRAVE_ENDPOINT,
-            headers={"Accept": "application/json", "X-Subscription-Token": key},
-            params={
-                "q": query,
-                "count": count,
-                "offset": offset,
-                "safesearch": "moderate",
-                "text_decorations": False,
-                "spellcheck": True,
+        response = requests.post(
+            SERPER_ENDPOINT,
+            headers={
+                "X-API-KEY": key,
+                "Content-Type": "application/json",
             },
+            json=payload,
             timeout=12,
         )
         if not response.ok:
-            # Deliberately never log request headers or the API key.
             body = (response.text or "").replace("\n", " ")[:1000]
-            logger.error("Brave API HTTP %s response=%s", response.status_code, body)
+            logger.error("Serper API HTTP %s response=%s", response.status_code, body)
             return [], f"Search provider returned HTTP {response.status_code}."
         data = response.json()
     except requests.Timeout:
-        logger.exception("Brave API request timed out")
+        logger.exception("Serper API request timed out")
         return [], "The search provider timed out."
     except requests.RequestException as exc:
-        logger.error("Brave API network error type=%s message=%s", type(exc).__name__, str(exc)[:500])
+        logger.error("Serper API network error type=%s message=%s", type(exc).__name__, str(exc)[:500])
         return [], "The search provider is temporarily unavailable."
     except ValueError as exc:
-        logger.error("Brave API returned invalid JSON: %s", str(exc)[:500])
+        logger.error("Serper API returned invalid JSON: %s", str(exc)[:500])
         return [], "The search provider returned an invalid response."
 
     results = []
-    for item in data.get("web", {}).get("results", []):
+    for item in data.get("organic", []):
         results.append({
-            "title": item.get("title") or item.get("url", "Result"),
-            "url": item.get("url", ""),
-            "description": item.get("description", ""),
-            "profile": item.get("profile", {}),
+            "title": item.get("title") or item.get("link", "Result"),
+            "url": item.get("link", ""),
+            "description": item.get("snippet", ""),
+            "profile": {},
         })
-    logger.info("Brave search succeeded result_count=%s page=%s", len(results), page)
+    logger.info("Serper search succeeded result_count=%s page=%s", len(results), page)
     return results, None
 
 
@@ -76,7 +70,7 @@ def search():
         page = 1
     if not q:
         return render_template("index.html")
-    results, error = brave_search(q, page)
+    results, error = web_search(q, page)
     return render_template("results.html", q=q, results=results, error=error, page=page, encoded_q=quote_plus(q))
 
 
@@ -89,13 +83,13 @@ def api_search():
         page = max(1, min(int(request.args.get("page", "1")), 20))
     except ValueError:
         page = 1
-    results, error = brave_search(q, page)
-    return jsonify({"ok": error is None, "query": q, "page": page, "results": results, "error": error})
+    results, error = web_search(q, page)
+    return jsonify({"ok": error is None, "provider": "serper", "query": q, "page": page, "results": results, "error": error})
 
 
 @app.get("/health")
 def health():
-    return jsonify({"ok": True, "service": "Jolley Search"})
+    return jsonify({"ok": True, "service": "Jolley Search", "provider": "serper"})
 
 
 if __name__ == "__main__":
