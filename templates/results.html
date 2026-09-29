@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ q }} - Jolley Search</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="small-brand" href="/"><span>Jolley</span> Search</a>
+    <form class="search-form compact" action="/search" method="get">
+      <input name="q" type="search" maxlength="300" value="{{ q }}" autocomplete="off" aria-label="Search">
+      <button type="submit">Search</button>
+    </form>
+  </header>
+  <main class="results-wrap">
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    {% if not error %}<div class="meta">Web results for <strong>{{ q }}</strong></div>{% endif %}
+    {% for result in results %}
+      <article class="result">
+        <div class="url">{{ result.url }}</div>
+        <a class="title" href="{{ result.url }}" rel="noopener noreferrer">{{ result.title|safe }}</a>
+        <p>{{ result.description|safe }}</p>
+      </article>
+    {% endfor %}
+    {% if not error and not results %}<p>No results found. Try a different search.</p>{% endif %}
+    {% if results %}
+      <nav class="pager">
+        {% if page > 1 %}<a href="/search?q={{ encoded_q }}&page={{ page-1 }}">← Previous</a>{% endif %}
+        <span>Page {{ page }}</span>
+        <a href="/search?q={{ encoded_q }}&page={{ page+1 }}">Next →</a>
+      </nav>
+    {% endif %}
+  </main>
+</body>
+</html>
